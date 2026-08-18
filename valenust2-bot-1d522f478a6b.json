@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "valenust-bot",
+  "private_key_id": "1d522f478a6b645701ea5d53b9c514040280286f",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCnCy6yYxCZiCVM\ndN/nUkhB8B47LaMMr297fryRU4S2hQmLMicZpbcpaLx0d7Y60HrSr5xRNbRNGOfZ\n3dq60NiifEoyU0i72zeGz1sxoG1+vJUVUqsgyf1auF2icogZH2WHP56DoqVG9SNm\nry+ZJHL/LnekGi3bFgbvk74VRE4j0sj4I9i0BGcek5BP0IGHTVIi5v6kpDDCiGlh\n0p6E2W9p0gW3QN4kbn7KEGDrVBsjD92OePGkbT0gaiiI0T3JD7EGh1oROUUBNUlT\niQlN8Mx4d/1hvza0oVhAzjEejXYAsr1NaQ5BjVD22VYdZamCPPnIaIJjzGM/cvem\nOTvIna4hAgMBAAECggEASn3Enb1qtiTOCUnnXWdGnM0BFj/UQcBsVSSf36jgempa\nZq3/XMMXKoqv27pU0+aLly/D5D0wQd9U6UWzmHKw4MjPZ6DXQxrPqLkIgFl76rQb\nQY6DjNQ2vMGR0/MCOT3Uj1syC5642KtR1aVS8xabh6uHo/EeuOAaSLVYY3B57iQF\ngC/AmTT9JL7O9myT3Z2R5sodA7tMVg1/5oOVPfpLgUusKLcVvcflNlVv+CdXGy3n\nZNE+wtcMv6d7u/qapoPFzkf5mCu6JQuzKU+/35YneVgl8CgzVKs+AQIz+1eULXgR\nC1JMu0lsvfmDZhtOFVmEgmZ+qaAbMnMC25CIntT6vwKBgQDVN/8qNxjC8l4kafId\nqcTRDMtVePI2gMZmi8d4VFlDmHCpZmayGlFvxKKBxrMDnRQMNuv3B2btMwbBi1te\n+pqLxApNeBLMHPt1xs7t8fntPBh/xp/lavLNDG2ucSYfGxY/OjcKak3tILb/kbDL\nkl6LJXjq4Wmujf53XjvRHRW2KwKBgQDIj2YjfjUVAF0RxQiRnUmUlg/a0hv+LZPU\n4AHx8opK+prv4QAYt5/VUy5sk76u+XkNIdl6qJs49UqrwJVghSVW7OtJzKYXMvdV\n9M7Ny6f5k1lg4YZ/9rza8Jyk8sqTSee231T2/6h358GGbIi9Sx/KzwoxnRqfDWtB\n1ZH66Lpy4wKBgQC3qi21qpI801P+3/g8TxIH1ZKNhMp34oOEr+FaKKZf0L8zXM8X\nmg4OTf6B9awcb8FmKCUovIqPxoWKUMWbUhmwTWVmiAkBI/ID6QY091yHW13rKyhv\nEaomsQ8F1de1sbp/KmFhKmMH4UdhbJkzMlkYWWYIRbWoNA4/ur+iCQC70wKBgAK2\n5iP+1ksVeSz/ZLFL1q4bJdXJWDWlekW8Tmpu5O5E3An5Gp47Bf/GI2+2xDLsD3Zd\nCet+ErO/piYS8jKfOrUleb3C9lCEERLpwE7KvdhD5UbJZp+ewEmaThRxcMpzip5Q\nAX9iUG5nBZiDKYqeVKzTBolLXgvfC5+Ve2dQ9Q0PAoGAMIP0MMrrhNYdIlETieqs\nvBfqf3ePU2DAxpKcXSnZxRjV/WpQlh35/yoe2MhWQ2knvAssZlpmhxEDZSrnwHpP\nWvoQ6XRymiw4EKdH1TIFM3UaPxGRwviJDturEIF5WwusoFaV6mwDQjt6H5LL5zjA\nzj62l0w1vNDXvW45rud8QE4=\n-----END PRIVATE KEY-----\n",
+  "client_email": "valenust-sheet-bot@valenust-bot.iam.gserviceaccount.com",
+  "client_id": "116211581619974464758",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/valenust-sheet-bot%40valenust-bot.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
