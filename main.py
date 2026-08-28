@@ -26,11 +26,12 @@ def get_gspread_client():
 def get_random_profile():
     try:
         data = request.get_json(silent=True) or {}
-        telegram_id = str(data.get("telegram_id", ""))
-        tab_name = str(data.get("tab_name", ""))  # e.g., 'Kogi_Female', 'Lagos_Male'
+        telegram_id = str(data.get("telegram_id", "")).strip()
+        tab_name = str(data.get("tab_name", "")).strip()       # e.g., 'Main_Male' or 'Main_Female'
+        user_location = str(data.get("location", "")).strip()  # Passed from {{location}}
 
         if not telegram_id or not tab_name:
-            return jsonify({"status": "error", "message": "Missing parameters"}), 400
+            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
 
         gc = get_gspread_client()
         workbook = gc.open("Valenust Users")
@@ -40,33 +41,41 @@ def get_random_profile():
         except Exception:
             return jsonify({"status": "error", "message": f"Tab '{tab_name}' not found"}), 404
 
-        # Fetch all rows from the requested tab
+        # 1. Fetch all records in ONE fast API request
         all_records = sheet.get_all_records()
 
-        valid_candidates = []
-        for profile in all_records:
-            # Skip the user's own profile
-            if str(profile.get("Telegram_Id", "")) == telegram_id:
-                continue
-            
-            valid_candidates.append(profile)
+        # 2. Exclude the user's own profile
+        other_candidates = [
+            p for p in all_records 
+            if str(p.get("Telegram_Id", "")).strip() != telegram_id
+        ]
 
-        # If tab is empty or only has the user's own profile
-        if not valid_candidates:
-            return jsonify({"status": "empty", "message": "No candidates available"}), 200
+        if not other_candidates:
+            return jsonify({"status": "empty", "message": "No candidates available on the app yet"}), 200
 
-        # Pick ONE random candidate row
-        selected = random.choice(valid_candidates)
+        # 3. Try finding candidates in the user's state first
+        same_state_candidates = []
+        if user_location:
+            same_state_candidates = [
+                p for p in other_candidates 
+                if str(p.get("Location", "")).strip().lower() == user_location.lower()
+            ]
+
+        # 4. Use local candidates if available; otherwise, fall back to nationwide candidates
+        final_pool = same_state_candidates if same_state_candidates else other_candidates
+
+        # 5. Pick one random profile from the final pool
+        selected = random.choice(final_pool)
 
         return jsonify({
             "status": "success",
             "candidate": {
-                "telegram_id": selected.get("Telegram_Id"),
-                "name": selected.get("User_name"),
-                "age": selected.get("User_age"),
-                "bio": selected.get("Bio"),
-                "photo_url": selected.get("Photo_URL"),
-                "location": selected.get("Location")
+                "telegram_id": str(selected.get("Telegram_Id", "")),
+                "name": str(selected.get("User_name", "Anonymous")),
+                "age": str(selected.get("User_age", "")),
+                "bio": str(selected.get("Bio", "No bio provided.")),
+                "photo_url": str(selected.get("Photo_URL", "")),
+                "location": str(selected.get("Location", ""))
             }
         }), 200
 
@@ -75,4 +84,3 @@ def get_random_profile():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-        
