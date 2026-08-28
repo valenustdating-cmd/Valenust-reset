@@ -1,7 +1,8 @@
-import os
+ import os
 import json
 import base64
 import random
+import time
 from flask import Flask, jsonify, request
 import gspread
 from google.oauth2.service_account import Credentials
@@ -13,6 +14,10 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+# Simple in-memory cache store: { tab_name: {"timestamp": float, "records": list} }
+DATA_CACHE = {}
+CACHE_TTL = 60  # Cache duration in seconds (1 minute)
+
 def get_gspread_client():
     if "GCP_CREDS_B64" in os.environ:
         creds_json = base64.b64decode(os.environ["GCP_CREDS_B64"]).decode("utf-8")
@@ -21,6 +26,30 @@ def get_gspread_client():
     else:
         creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     return gspread.authorize(creds)
+
+def get_cached_records(tab_name):
+    """Fetches records from cache if valid, otherwise refreshes from Google Sheets."""
+    now = time.time()
+    
+    # Check if we have valid, fresh data in cache
+    if tab_name in DATA_CACHE:
+        cache_entry = DATA_CACHE[tab_name]
+        if now - cache_entry["timestamp"] < CACHE_TTL:
+            return cache_entry["records"]
+
+    # Fetch fresh data from Google Sheets
+    gc = get_gspread_client()
+    workbook = gc.open("Valenust Users")
+    sheet = workbook.worksheet(tab_name)
+    all_records = sheet.get_all_records()
+
+    # Update cache
+    DATA_CACHE[tab_name] = {
+        "timestamp": now,
+        "records": all_records
+    }
+    
+    return all_records
 
 @app.route("/random_profile", methods=["POST"])
 def get_random_profile():
@@ -33,18 +62,12 @@ def get_random_profile():
         if not telegram_id or not tab_name:
             return jsonify({"status": "error", "message": "Missing required parameters"}), 400
 
-        gc = get_gspread_client()
-        workbook = gc.open("Valenust Users")
-        
         try:
-            sheet = workbook.worksheet(tab_name)
-        except Exception:
-            return jsonify({"status": "error", "message": f"Tab '{tab_name}' not found"}), 404
+            all_records = get_cached_records(tab_name)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Sheet fetch error: {str(e)}"}), 500
 
-        # 1. Fetch all records in ONE fast API request
-        all_records = sheet.get_all_records()
-
-        # 2. Exclude the user's own profile
+        # 1. Exclude the user's own profile
         other_candidates = [
             p for p in all_records 
             if str(p.get("Telegram_Id", "")).strip() != telegram_id
@@ -53,7 +76,7 @@ def get_random_profile():
         if not other_candidates:
             return jsonify({"status": "empty", "message": "No candidates available on the app yet"}), 200
 
-        # 3. Try finding candidates in the user's state first
+        # 2. Try finding candidates in the user's state first
         same_state_candidates = []
         if user_location:
             same_state_candidates = [
@@ -61,10 +84,10 @@ def get_random_profile():
                 if str(p.get("Location", "")).strip().lower() == user_location.lower()
             ]
 
-        # 4. Use local candidates if available; otherwise, fall back to nationwide candidates
+        # 3. Fall back to nationwide candidates if state is empty
         final_pool = same_state_candidates if same_state_candidates else other_candidates
 
-        # 5. Pick one random profile from the final pool
+        # 4. Pick one random candidate
         selected = random.choice(final_pool)
 
         return jsonify({
@@ -84,3 +107,4 @@ def get_random_profile():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+     
