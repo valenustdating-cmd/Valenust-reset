@@ -115,7 +115,12 @@ def check_vip():
         tab_name = str(data.get("tab_name", "")).strip()  # 'Main_Male' or 'Main_Female'
 
         if not telegram_id or not tab_name:
-            return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "Missing parameters"}), 200
+            return jsonify({
+                "is_vip": "false", 
+                "is_ref_valid": "false", 
+                "status": "EXPIRED", 
+                "reason": "Missing parameters"
+            }), 200
 
         # Uses the fast in-memory cached records
         all_records = get_cached_records(tab_name)
@@ -124,26 +129,51 @@ def check_vip():
         user = next((p for p in all_records if str(p.get("Telegram_Id", "")).strip() == telegram_id), None)
 
         if not user:
-            return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "User not found"}), 200
+            return jsonify({
+                "is_vip": "false", 
+                "is_ref_valid": "false", 
+                "status": "EXPIRED", 
+                "reason": "User not found"
+            }), 200
 
-        # Fetch the date string from column header 'VIP_Expiry'
-        expiry_str = str(user.get("VIP_Expiry", "")).strip()
-
-        if not expiry_str:
-            return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "No expiry date set"}), 200
-
-        # Parse date and compare with today's date
-        expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
         today = datetime.now().date()
 
-        # Active if expiry date is today or in the future
-        if expiry_date >= today:
-            return jsonify({"is_vip": "true", "status": "ACTIVE", "expiry": expiry_str}), 200
-        else:
-            return jsonify({"is_vip": "false", "status": "EXPIRED", "expiry": expiry_str}), 200
+        # 1. Check VIP Expiry (Column M - header 'VIP_Expiry')
+        vip_expiry_str = str(user.get("VIP_Expiry", "")).strip()
+        is_vip = "false"
+        if vip_expiry_str:
+            try:
+                vip_date = datetime.strptime(vip_expiry_str, "%Y-%m-%d").date()
+                if vip_date >= today:
+                    is_vip = "true"
+            except ValueError:
+                pass
+
+        # 2. Check Referral Expiry (Column L - header 'Ref_Expiry')
+        ref_expiry_str = str(user.get("Ref_Expiry", "")).strip()
+        is_ref_valid = "false"
+        if ref_expiry_str:
+            try:
+                ref_date = datetime.strptime(ref_expiry_str, "%Y-%m-%d").date()
+                if ref_date >= today:
+                    is_ref_valid = "true"
+            except ValueError:
+                pass
+
+        return jsonify({
+            "is_vip": is_vip,
+            "is_ref_valid": is_ref_valid,
+            "vip_expiry": vip_expiry_str,
+            "ref_expiry": ref_expiry_str
+        }), 200
 
     except Exception as e:
-        return jsonify({"is_vip": "false", "status": "ERROR", "message": str(e)}), 200
+        return jsonify({
+            "is_vip": "false", 
+            "is_ref_valid": "false", 
+            "status": "ERROR", 
+            "message": str(e)
+        }), 200
 
 
 if __name__ == "__main__":
