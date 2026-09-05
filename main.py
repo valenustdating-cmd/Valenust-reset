@@ -107,4 +107,43 @@ def get_random_profile():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-     
+ from datetime import datetime
+
+@app.route("/check_vip", methods=["POST"])
+def check_vip():
+    try:
+        data = request.get_json(silent=True) or {}
+        telegram_id = str(data.get("telegram_id", "")).strip()
+        tab_name = str(data.get("tab_name", "")).strip()  # 'Main_Male' or 'Main_Female'
+
+        if not telegram_id or not tab_name:
+            return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "Missing parameters"}), 200
+
+        # Uses the fast in-memory cached records from your existing code
+        all_records = get_cached_records(tab_name)
+
+        # Find user record by Telegram_Id
+        user = next((p for p in all_records if str(p.get("Telegram_Id", "")).strip() == telegram_id), None)
+
+        if not user:
+            return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "User not found"}), 200
+
+        # Fetch the date string from column header 'VIP_Expiry'
+        expiry_str = str(user.get("VIP_Expiry", "")).strip()
+
+        if not expiry_str:
+            return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "No expiry date set"}), 200
+
+        # Parse date and compare with today's date
+        expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+        today = datetime.now().date()
+
+        # Active if expiry date is today or in the future
+        if expiry_date >= today:
+            return jsonify({"is_vip": "true", "status": "ACTIVE", "expiry": expiry_str}), 200
+        else:
+            return jsonify({"is_vip": "false", "status": "EXPIRED", "expiry": expiry_str}), 200
+
+    except Exception as e:
+        return jsonify({"is_vip": "false", "status": "ERROR", "message": str(e)}), 200
+    
