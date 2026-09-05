@@ -3,6 +3,7 @@ import json
 import base64
 import random
 import time
+from datetime import datetime
 from flask import Flask, jsonify, request
 import gspread
 from google.oauth2.service_account import Credentials
@@ -105,9 +106,6 @@ def get_random_profile():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
- from datetime import datetime
 
 @app.route("/check_vip", methods=["POST"])
 def check_vip():
@@ -119,7 +117,7 @@ def check_vip():
         if not telegram_id or not tab_name:
             return jsonify({"is_vip": "false", "status": "EXPIRED", "reason": "Missing parameters"}), 200
 
-        # Uses the fast in-memory cached records from your existing code
+        # Uses the fast in-memory cached records
         all_records = get_cached_records(tab_name)
 
         # Find user record by Telegram_Id
@@ -146,4 +144,7 @@ def check_vip():
 
     except Exception as e:
         return jsonify({"is_vip": "false", "status": "ERROR", "message": str(e)}), 200
-    
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
