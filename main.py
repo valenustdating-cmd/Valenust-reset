@@ -190,20 +190,25 @@ def get_liker():
         if not telegram_id:
             return jsonify({"status": "error", "message": "Missing telegram_id"}), 400
 
-        # Read from the 'Likes' tab in Google Sheets
-        all_likes = get_cached_records("Likes")
+        # Fetch fresh sheet data directly to avoid stale cache
+        gc = get_gspread_client()
+        workbook = gc.open("Valenust Users")
+        sheet = workbook.worksheet("Likes")
+        all_likes = sheet.get_all_records()
 
-        # Find all rows where 'Liked_candidate' matches this user's telegram_id AND has a valid Liker_Photo
-        matching_likers = [
-            row for row in all_likes 
-            if str(row.get("Liked_candidate", "")).strip() == telegram_id 
-            and str(row.get("Liker_Photo", "")).strip() != ""
-        ]
+        matching_likers = []
+        for row in all_likes:
+            # Convert values safely to strings to match integers from Google Sheets
+            liked_cand = str(row.get("Liked_candidate", "")).strip()
+            liker_photo = str(row.get("Liker_Photo", "")).strip()
+            
+            if liked_cand == telegram_id and liker_photo != "":
+                matching_likers.append(row)
 
         if not matching_likers:
             return jsonify({"status": "empty", "message": "No likes found"}), 200
 
-        # Pick one liker at random from the matches
+        # Pick one matching liker at random
         selected = random.choice(matching_likers)
 
         return jsonify({
