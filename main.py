@@ -188,32 +188,33 @@ def get_liker():
         telegram_id = str(data.get("telegram_id", "")).strip()
 
         if not telegram_id:
-            return jsonify({"status": "error", "message": "Missing telegram_id"}), 400
+            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
 
-        # Fetch fresh sheet data directly to avoid stale cache
-        gc = get_gspread_client()
-        workbook = gc.open("Valenust Users")
-        sheet = workbook.worksheet("Likes")
-        all_likes = sheet.get_all_records()
+        try:
+            # Reads from 'Likes' tab using the exact same caching mechanism as random_profile
+            all_records = get_cached_records("Likes")
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Sheet fetch error: {str(e)}"}), 500
 
-        matching_likers = []
-        for row in all_likes:
-            # Convert values safely to strings to match integers from Google Sheets
-            liked_cand = str(row.get("Liked_candidate", "")).strip()
-            liker_photo = str(row.get("Liker_Photo", "")).strip()
+        # Filter rows where Liked_candidate matches the user's telegram_id
+        valid_candidates = []
+        for p in all_records:
+            liked_cand = str(p.get("Liked_candidate", "")).strip()
+            liker_photo = str(p.get("Liker_Photo", "")).strip()
             
-            if liked_cand == telegram_id and liker_photo != "":
-                matching_likers.append(row)
+            # Ensures Liked_candidate matches telegram_id and the record has a valid photo
+            if liked_cand == telegram_id and liker_photo:
+                valid_candidates.append(p)
 
-        if not matching_likers:
+        if not valid_candidates:
             return jsonify({"status": "empty", "message": "No likes found"}), 200
 
-        # Pick one matching liker at random
-        selected = random.choice(matching_likers)
+        # Pick one matching liker profile at random
+        selected = random.choice(valid_candidates)
 
         return jsonify({
             "status": "success",
-            "liker": {
+            "candidate": {
                 "telegram_id": str(selected.get("Liker_id", "")),
                 "name": str(selected.get("Liker_username", "Anonymous")),
                 "age": str(selected.get("Liker_age", "")),
