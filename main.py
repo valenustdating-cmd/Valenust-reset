@@ -52,6 +52,7 @@ def get_cached_records(tab_name):
     
     return all_records
 
+
 @app.route("/random_profile", methods=["POST"])
 def get_random_profile():
     try:
@@ -68,25 +69,29 @@ def get_random_profile():
         except Exception as e:
             return jsonify({"status": "error", "message": f"Sheet fetch error: {str(e)}"}), 500
 
-        # 1. Exclude the user's own profile
-        other_candidates = [
-            p for p in all_records 
-            if str(p.get("Telegram_Id", "")).strip() != telegram_id
-        ]
+        # 1. Filter out incomplete profiles & the user's own profile
+        valid_candidates = []
+        for p in all_records:
+            p_id = str(p.get("Telegram_Id", "")).strip()
+            p_photo = str(p.get("Photo_URL", "")).strip()
+            
+            # Must have a valid Telegram ID, Photo URL, and not be the user asking
+            if p_id and p_photo and p_id != telegram_id:
+                valid_candidates.append(p)
 
-        if not other_candidates:
+        if not valid_candidates:
             return jsonify({"status": "empty", "message": "No candidates available on the app yet"}), 200
 
         # 2. Try finding candidates in the user's state first
         same_state_candidates = []
         if user_location:
             same_state_candidates = [
-                p for p in other_candidates 
+                p for p in valid_candidates 
                 if str(p.get("Location", "")).strip().lower() == user_location.lower()
             ]
 
         # 3. Fall back to nationwide candidates if state is empty
-        final_pool = same_state_candidates if same_state_candidates else other_candidates
+        final_pool = same_state_candidates if same_state_candidates else valid_candidates
 
         # 4. Pick one random candidate
         selected = random.choice(final_pool)
@@ -174,6 +179,47 @@ def check_vip():
             "status": "ERROR", 
             "message": str(e)
         }), 200
+
+
+@app.route("/get_liker", methods=["POST"])
+def get_liker():
+    try:
+        data = request.get_json(silent=True) or {}
+        telegram_id = str(data.get("telegram_id", "")).strip()
+
+        if not telegram_id:
+            return jsonify({"status": "error", "message": "Missing telegram_id"}), 400
+
+        # Read from the 'Likes' tab in Google Sheets
+        all_likes = get_cached_records("Likes")
+
+        # Find all rows where 'Liked_candidate' matches this user's telegram_id AND has a valid Liker_Photo
+        matching_likers = [
+            row for row in all_likes 
+            if str(row.get("Liked_candidate", "")).strip() == telegram_id 
+            and str(row.get("Liker_Photo", "")).strip() != ""
+        ]
+
+        if not matching_likers:
+            return jsonify({"status": "empty", "message": "No likes found"}), 200
+
+        # Pick one liker at random from the matches
+        selected = random.choice(matching_likers)
+
+        return jsonify({
+            "status": "success",
+            "liker": {
+                "telegram_id": str(selected.get("Liker_id", "")),
+                "name": str(selected.get("Liker_username", "Anonymous")),
+                "age": str(selected.get("Liker_age", "")),
+                "bio": str(selected.get("Liker_Bio", "No bio provided.")),
+                "photo_url": str(selected.get("Liker_Photo", "")),
+                "location": str(selected.get("Liker_location", ""))
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 if __name__ == "__main__":
