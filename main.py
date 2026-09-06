@@ -3,6 +3,7 @@ import json
 import base64
 import random
 import time
+import re
 from datetime import datetime
 from flask import Flask, jsonify, request
 import gspread
@@ -15,9 +16,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Simple in-memory cache store: { tab_name: {"timestamp": float, "records": list} }
 DATA_CACHE = {}
-CACHE_TTL = 60  # Cache duration in seconds (1 minute)
+CACHE_TTL = 60
 
 def get_gspread_client():
     if "GCP_CREDS_B64" in os.environ:
@@ -29,22 +29,18 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 def get_cached_records(tab_name):
-    """Fetches records from cache if valid, otherwise refreshes from Google Sheets."""
     now = time.time()
     
-    # Check if we have valid, fresh data in cache
     if tab_name in DATA_CACHE:
         cache_entry = DATA_CACHE[tab_name]
         if now - cache_entry["timestamp"] < CACHE_TTL:
             return cache_entry["records"]
 
-    # Fetch fresh data from Google Sheets
     gc = get_gspread_client()
     workbook = gc.open("Valenust Users")
     sheet = workbook.worksheet(tab_name)
     all_records = sheet.get_all_records()
 
-    # Update cache
     DATA_CACHE[tab_name] = {
         "timestamp": now,
         "records": all_records
@@ -52,14 +48,21 @@ def get_cached_records(tab_name):
     
     return all_records
 
+def clean_phone(phone_str):
+    """Formats phone numbers for WhatsApp wa.me links."""
+    digits = re.sub(r"\D", "", str(phone_str or ""))
+    if digits.startswith("0") and len(digits) == 11:
+        digits = "234" + digits[1:]
+    return digits
+
 
 @app.route("/random_profile", methods=["POST"])
 def get_random_profile():
     try:
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
-        tab_name = str(data.get("tab_name", "")).strip()       # e.g., 'Main_Male' or 'Main_Female'
-        user_location = str(data.get("location", "")).strip()  # Passed from {{location}}
+        tab_name = str(data.get("tab_name", "")).strip()
+        user_location = str(data.get("location", "")).strip()
 
         if not telegram_id or not tab_name:
             return jsonify({"status": "error", "message": "Missing required parameters"}), 400
@@ -69,20 +72,18 @@ def get_random_profile():
         except Exception as e:
             return jsonify({"status": "error", "message": f"Sheet fetch error: {str(e)}"}), 500
 
-        # 1. Filter out incomplete profiles & the user's own profile
         valid_candidates = []
         for p in all_records:
-            p_id = str(p.get("Telegram_Id", "")).strip()
-            p_photo = str(p.get("Photo_URL", "")).strip()
+            clean_record = {str(k).strip(): v for k, v in p.items()}
+            p_id = str(clean_record.get("Telegram_Id", "")).strip()
+            p_photo = str(clean_record.get("Photo_URL", "")).strip()
             
-            # Must have a valid Telegram ID, Photo URL, and not be the user asking
             if p_id and p_photo and p_id != telegram_id:
-                valid_candidates.append(p)
+                valid_candidates.append(clean_record)
 
         if not valid_candidates:
             return jsonify({"status": "empty", "message": "No candidates available on the app yet"}), 200
 
-        # 2. Try finding candidates in the user's state first
         same_state_candidates = []
         if user_location:
             same_state_candidates = [
@@ -90,10 +91,7 @@ def get_random_profile():
                 if str(p.get("Location", "")).strip().lower() == user_location.lower()
             ]
 
-        # 3. Fall back to nationwide candidates if state is empty
         final_pool = same_state_candidates if same_state_candidates else valid_candidates
-
-        # 4. Pick one random candidate
         selected = random.choice(final_pool)
 
         return jsonify({
@@ -104,7 +102,9 @@ def get_random_profile():
                 "age": str(selected.get("User_age", "")),
                 "bio": str(selected.get("Bio", "No bio provided.")),
                 "photo_url": str(selected.get("Photo_URL", "")),
-                "location": str(selected.get("Location", ""))
+                "location": str(selected.get("Location", "")),
+                # Reads from 'Phone_Contact' in Main_Male / Main_Female
+                "phone": clean_phone(selected.get("Phone_Contact", selected.get("Phone_number", "")))
             }
         }), 200
 
@@ -117,7 +117,7 @@ def check_vip():
     try:
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
-        tab_name = str(data.get("tab_name", "")).strip()  # 'Main_Male' or 'Main_Female'
+        tab_name = str(data.get("tab_name", "")).strip()
 
         if not telegram_id or not tab_name:
             return jsonify({
@@ -127,10 +127,7 @@ def check_vip():
                 "reason": "Missing parameters"
             }), 200
 
-        # Uses the fast in-memory cached records
         all_records = get_cached_records(tab_name)
-
-        # Find user record by Telegram_Id
         user = next((p for p in all_records if str(p.get("Telegram_Id", "")).strip() == telegram_id), None)
 
         if not user:
@@ -143,7 +140,6 @@ def check_vip():
 
         today = datetime.now().date()
 
-        # 1. Check VIP Expiry (Column M - header 'VIP_Expiry')
         vip_expiry_str = str(user.get("VIP_Expiry", "")).strip()
         is_vip = "false"
         if vip_expiry_str:
@@ -154,7 +150,6 @@ def check_vip():
             except ValueError:
                 pass
 
-        # 2. Check Referral Expiry (Column L - header 'Ref_Expiry')
         ref_expiry_str = str(user.get("Ref_Expiry", "")).strip()
         is_ref_valid = "false"
         if ref_expiry_str:
@@ -191,25 +186,22 @@ def get_liker():
             return jsonify({"status": "error", "message": "Missing required parameters"}), 400
 
         try:
-            # Reads from 'Likes' tab using the exact same caching mechanism as random_profile
             all_records = get_cached_records("Likes")
         except Exception as e:
             return jsonify({"status": "error", "message": f"Sheet fetch error: {str(e)}"}), 500
 
-        # Filter rows where Liked_candidate matches the user's telegram_id
         valid_candidates = []
         for p in all_records:
-            liked_cand = str(p.get("Liked_candidate", "")).strip()
-            liker_photo = str(p.get("Liker_Photo", "")).strip()
+            clean_record = {str(k).strip(): v for k, v in p.items()}
+            liked_cand = str(clean_record.get("Liked_candidate", clean_record.get("Liked_candidate_id", ""))).strip()
+            liker_photo = str(clean_record.get("Liker_Photo", "")).strip()
             
-            # Ensures Liked_candidate matches telegram_id and the record has a valid photo
             if liked_cand == telegram_id and liker_photo:
-                valid_candidates.append(p)
+                valid_candidates.append(clean_record)
 
         if not valid_candidates:
             return jsonify({"status": "empty", "message": "No likes found"}), 200
 
-        # Pick one matching liker profile at random
         selected = random.choice(valid_candidates)
 
         return jsonify({
@@ -220,7 +212,9 @@ def get_liker():
                 "age": str(selected.get("Liker_age", "")),
                 "bio": str(selected.get("Liker_Bio", "No bio provided.")),
                 "photo_url": str(selected.get("Liker_Photo", "")),
-                "location": str(selected.get("Liker_location", ""))
+                "location": str(selected.get("Liker_location", "")),
+                # Reads from 'liker_phone' in Likes sheet
+                "phone": clean_phone(selected.get("liker_phone", selected.get("Liker_phone", "")))
             }
         }), 200
 
