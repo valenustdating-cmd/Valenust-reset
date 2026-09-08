@@ -4,7 +4,7 @@ import base64
 import random
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 import gspread
 from google.oauth2.service_account import Credentials
@@ -48,12 +48,78 @@ def get_cached_records(tab_name):
     
     return all_records
 
+def invalidate_cache(tab_name):
+    """Clears the cache when a payment updates Google Sheets so changes show immediately."""
+    if tab_name in DATA_CACHE:
+        del DATA_CACHE[tab_name]
+
 def clean_phone(phone_str):
     """Formats phone numbers for WhatsApp wa.me links."""
     digits = re.sub(r"\D", "", str(phone_str or ""))
     if digits.startswith("0") and len(digits) == 11:
         digits = "234" + digits[1:]
     return digits
+
+
+@app.route("/webhook/payment", methods=["POST"])
+def process_payment():
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        # Accepts telegram_id directly or from SendPulse contact payload
+        telegram_id = str(
+            data.get("telegram_id") or 
+            data.get("contact", {}).get("telegram_id") or ""
+        ).strip()
+        
+        days = int(data.get("days", 30))
+
+        if not telegram_id:
+            return jsonify({"status": "error", "message": "Missing telegram_id"}), 400
+
+        gc = get_gspread_client()
+        workbook = gc.open("Valenust Users")
+
+        # Searches both tabs so gender placement never breaks payment processing
+        sheets_to_search = ["Main_Male", "Main_Female"]
+        user_found = False
+        new_expiry = ""
+
+        for tab_name in sheets_to_search:
+            sheet = workbook.worksheet(tab_name)
+            cell = sheet.find(telegram_id)
+            
+            if cell:
+                # Find column index for VIP_Expiry (Column M is 13)
+                headers = sheet.row_values(1)
+                try:
+                    vip_col_idx = headers.index("VIP_Expiry") + 1
+                except ValueError:
+                    vip_col_idx = 13
+
+                # Set expiry in YYYY-MM-DD format (e.g. 2026-10-08)
+                new_expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                
+                # Direct update to Google Sheet
+                sheet.update_cell(cell.row, vip_col_idx, new_expiry)
+                
+                # Immediately bypass cache for this sheet
+                invalidate_cache(tab_name)
+                
+                user_found = True
+                break
+
+        if not user_found:
+            return jsonify({"status": "error", "message": f"User {telegram_id} not found in sheets"}), 404
+
+        return jsonify({
+            "status": "success",
+            "message": f"VIP updated for Telegram ID {telegram_id}",
+            "vip_expiry": new_expiry
+        }), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/random_profile", methods=["POST"])
@@ -103,7 +169,6 @@ def get_random_profile():
                 "bio": str(selected.get("Bio", "No bio provided.")),
                 "photo_url": str(selected.get("Photo_URL", "")),
                 "location": str(selected.get("Location", "")),
-                # Reads from 'Phone_Contact' in Main_Male / Main_Female
                 "phone": clean_phone(selected.get("Phone_Contact", selected.get("Phone_number", "")))
             }
         }), 200
@@ -213,7 +278,6 @@ def get_liker():
                 "bio": str(selected.get("Liker_Bio", "No bio provided.")),
                 "photo_url": str(selected.get("Liker_Photo", "")),
                 "location": str(selected.get("Liker_location", "")),
-                # Reads from 'liker_phone' in Likes sheet
                 "phone": clean_phone(selected.get("liker_phone", selected.get("Liker_phone", "")))
             }
         }), 200
