@@ -66,60 +66,71 @@ def process_payment():
     try:
         data = request.get_json(silent=True) or {}
         
-        # Accepts telegram_id directly or from SendPulse contact payload
-        telegram_id = str(
+        # 1. Grab telegram_id from every possible SendPulse location
+        raw_id = (
             data.get("telegram_id") or 
-            data.get("contact", {}).get("telegram_id") or ""
-        ).strip()
-        
-        days = int(data.get("days", 30))
+            data.get("contact", {}).get("telegram_id") or 
+            data.get("contact", {}).get("variables", {}).get("telegram_id") or ""
+        )
+        telegram_id = str(raw_id).strip()
 
-        if not telegram_id:
-            return jsonify({"status": "error", "message": "Missing telegram_id"}), 400
+        # Catch empty or unparsed SendPulse variables immediately
+        if not telegram_id or "{{" in telegram_id or "}}" in telegram_id:
+            return jsonify({
+                "status": "error", 
+                "message": f"SendPulse sent an invalid Telegram ID: '{telegram_id}'. Ensure 'telegram_id' contact variable is set."
+            }), 400
+
+        try:
+            days = int(data.get("days", 30))
+        except (ValueError, TypeError):
+            days = 30
 
         gc = get_gspread_client()
         workbook = gc.open("Valenust Users")
 
-        # Searches both tabs so gender placement never breaks payment processing
-        sheets_to_search = ["Main_Male", "Main_Female"]
+        # 2. Compute exact expiry date string
+        new_expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+        
+        # 3. Direct fast-path search on Main_Male and Main_Female
         user_found = False
-        new_expiry = ""
+        sheets_to_search = ["Main_Male", "Main_Female"]
 
         for tab_name in sheets_to_search:
             sheet = workbook.worksheet(tab_name)
-            cell = sheet.find(telegram_id)
             
-            if cell:
-                # Find column index for VIP_Expiry (Column M is 13)
-                headers = sheet.row_values(1)
-                try:
-                    vip_col_idx = headers.index("VIP_Expiry") + 1
-                except ValueError:
-                    vip_col_idx = 13
-
-                # Set expiry in YYYY-MM-DD format (e.g. 2026-10-08)
-                new_expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+            # Fetch entire Column A in a single, ultra-fast API call
+            col_a_ids = [str(x).strip() for x in sheet.col_values(1)]
+            
+            if telegram_id in col_a_ids:
+                # Get exact row index instantly (1-based index)
+                target_row = col_a_ids.index(telegram_id) + 1
                 
-                # Direct update to Google Sheet
-                sheet.update_cell(cell.row, vip_col_idx, new_expiry)
+                # Column M is Column 13 (VIP_Expiry)
+                vip_col_idx = 13
                 
-                # Immediately bypass cache for this sheet
+                # Update cell directly without searching the full sheet
+                sheet.update_cell(target_row, vip_col_idx, new_expiry)
+                
+                # Clear local server cache immediately
                 invalidate_cache(tab_name)
-                
                 user_found = True
                 break
 
         if not user_found:
-            return jsonify({"status": "error", "message": f"User {telegram_id} not found in sheets"}), 404
+            return jsonify({
+                "status": "error", 
+                "message": f"Telegram ID {telegram_id} was not found in Main_Male or Main_Female"
+            }), 404
 
         return jsonify({
             "status": "success",
-            "message": f"VIP updated for Telegram ID {telegram_id}",
+            "message": f"VIP updated instantly for Telegram ID {telegram_id}",
             "vip_expiry": new_expiry
         }), 200
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
 
 
 @app.route("/random_profile", methods=["POST"])
