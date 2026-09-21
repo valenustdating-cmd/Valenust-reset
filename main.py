@@ -296,6 +296,54 @@ def get_liker():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/get_message_liker", methods=["POST"])
+def get_message_liker():
+    try:
+        data = request.get_json(silent=True) or {}
+        telegram_id = str(data.get("telegram_id", "")).strip()
+
+        if not telegram_id:
+            return jsonify({"status": "error", "message": "Missing required parameters"}), 400
+
+        try:
+            # Fetches records from the 'Message_Likes' tab shown in your Google Sheets
+            all_records = get_cached_records("Message_Likes")
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Sheet fetch error: {str(e)}"}), 500
+
+        valid_candidates = []
+        for p in all_records:
+            clean_record = {str(k).strip(): v for k, v in p.items()}
+            
+            # Checks Column B: Liked_candidate against the user's telegram_id
+            liked_cand = str(clean_record.get("Liked_candidate", clean_record.get("Liked_candidate_id", ""))).strip()
+            liker_photo = str(clean_record.get("Liker_Photo", "")).strip()
+            
+            if liked_cand == telegram_id and liker_photo:
+                valid_candidates.append(clean_record)
+
+        if not valid_candidates:
+            return jsonify({"status": "empty", "message": "No quick messages found"}), 200
+
+        # Select a random quick message from the recipient's inbox queue
+        selected = random.choice(valid_candidates)
+
+        return jsonify({
+            "status": "success",
+            "candidate": {
+                "telegram_id": str(selected.get("Liker_id", "")),
+                "name": str(selected.get("Liker_username", "Anonymous")),
+                "age": str(selected.get("Liker_age", "")),
+                "bio": str(selected.get("Liker_Bio", "No bio provided.")),
+                "photo_url": str(selected.get("Liker_Photo", "")),
+                "message": str(selected.get("Liker_Message", "No message attached.")),
+                "location": str(selected.get("Liker_location", "")),
+                "phone": clean_phone(selected.get("liker_phone", selected.get("Liker_phone", "")))
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
