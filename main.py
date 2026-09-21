@@ -302,7 +302,7 @@ def get_messages():
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
 
-        # 1. Stop empty IDs or unparsed SendPulse test strings immediately
+        # Reject invalid/empty IDs immediately
         if not telegram_id or "{" in telegram_id or "}" in telegram_id:
             return jsonify({
                 "status": "empty",
@@ -313,19 +313,38 @@ def get_messages():
                 }
             }), 200
 
-        # 2. Standalone fetch directly from the Direct_Messages tab
+        # Open Direct_Messages tab directly
         gc = get_gspread_client()
         sheet = gc.open("Valenust Users").worksheet("Direct_Messages")
-        records = sheet.get_all_records()
+        
+        # Get raw rows (Matrix of lists: [row1, row2, row3...])
+        all_rows = sheet.get_all_values()
 
-        # 3. Filter strictly by Messaged_id (Column B)
+        if len(all_rows) <= 1:
+            return jsonify({
+                "status": "empty",
+                "message": "No direct messages found",
+                "candidate": {
+                    "name": "", "message": "", "photo_url": "", 
+                    "location": "", "age": "", "phone": ""
+                }
+            }), 200
+
+        # Filter strictly by Column B (Messaged_id)
+        # Column A = Index 0 (Messenger_id)
+        # Column B = Index 1 (Messaged_id)
+        # Column C = Index 2 (Messenger_username)
+        # Column D = Index 3 (Messenger_age)
+        # Column E = Index 4 (Messenger_location)
+        # Column F = Index 5 (Messenger_message)
+        # Column G = Index 6 (Messenger_photo)
+        # Column H = Index 7 (Messenger_phone)
+        
         matches = []
-        for row in records:
-            clean_row = {str(k).strip(): v for k, v in row.items()}
-            if str(clean_row.get("Messaged_id", "")).strip() == telegram_id:
-                matches.append(clean_row)
+        for row in all_rows[1:]: # Skip header row
+            if len(row) > 1 and str(row[1]).strip() == telegram_id:
+                matches.append(row)
 
-        # 4. If no messages exist for this user ID, return empty state
         if not matches:
             return jsonify({
                 "status": "empty",
@@ -336,27 +355,35 @@ def get_messages():
                 }
             }), 200
 
-        # 5. Select a message at random and process fields
+        # Pick a random matching message row
         selected = random.choice(matches)
-        
-        raw_name = str(selected.get("Messenger_username", "")).strip()
-        display_name = raw_name if raw_name else "Someone"
+
+        # Safely extract by column index
+        messenger_id = selected[0] if len(selected) > 0 else ""
+        raw_name     = selected[2] if len(selected) > 2 else ""
+        age          = selected[3] if len(selected) > 3 else ""
+        location     = selected[4] if len(selected) > 4 else ""
+        msg_text     = selected[5] if len(selected) > 5 else ""
+        photo_url    = selected[6] if len(selected) > 6 else ""
+        phone        = selected[7] if len(selected) > 7 else ""
+
+        display_name = str(raw_name).strip() if str(raw_name).strip() else "Someone"
 
         return jsonify({
             "status": "success",
             "candidate": {
-                "telegram_id": str(selected.get("Messenger_id", "")),
+                "telegram_id": str(messenger_id).strip(),
                 "name": display_name,
-                "age": str(selected.get("Messenger_age", "")),
-                "message": str(selected.get("Messenger_message", "")),
-                "photo_url": str(selected.get("Messenger_photo", "")),
-                "location": str(selected.get("Messenger_location", "")),
-                "phone": clean_phone(selected.get("Messenger_phone", ""))
+                "age": str(age).strip(),
+                "message": str(msg_text).strip(),
+                "photo_url": str(photo_url).strip(),
+                "location": str(location).strip(),
+                "phone": clean_phone(phone)
             }
         }), 200
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-                    
+        
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
