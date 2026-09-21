@@ -302,49 +302,38 @@ def get_message_liker():
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
 
-        # Reject unparsed SendPulse test variable
+        # 1. Stop processing if SendPulse passes an unparsed placeholder variable during test runner
         if not telegram_id or "{{" in telegram_id or "}}" in telegram_id:
             return jsonify({
                 "status": "empty", 
-                "message": "Invalid Telegram ID during test runner",
-                "candidate": {
-                    "name": "",
-                    "age": "",
-                    "bio": "",
-                    "message": "",
-                    "photo_url": "",
-                    "location": "",
-                    "phone": ""
-                }
+                "message": "No match found",
+                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
             }), 200
 
-        all_records = get_cached_records("Message_Likes")
+        # 2. Open ONLY the Message_Likes worksheet directly (No shared cached fallbacks)
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet("Message_Likes")
+        all_records = sheet.get_all_records()
 
         valid_candidates = []
         for p in all_records:
             clean_record = {str(k).strip(): v for k, v in p.items()}
-            liked_cand = str(clean_record.get("Liked_candidate", clean_record.get("Liked_Messenger_id", ""))).strip()
-            liker_photo = str(clean_record.get("Liker_Photo", "")).strip()
             
-            if liked_cand == telegram_id and liker_photo:
+            # Check Column B (Liked_candidate)
+            liked_cand = str(clean_record.get("Liked_candidate", "")).strip()
+            
+            # Match strictly against the recipient's Telegram ID
+            if liked_cand == telegram_id:
                 valid_candidates.append(clean_record)
 
+        # 3. IF NO MATCH: HARD STOP. Do NOT look anywhere else.
         if not valid_candidates:
-            # Explicitly return blank candidate structure to wipe SendPulse cache
             return jsonify({
                 "status": "empty",
                 "message": "No quick messages found",
-                "candidate": {
-                    "name": "",
-                    "age": "",
-                    "bio": "",
-                    "message": "",
-                    "photo_url": "",
-                    "location": "",
-                    "phone": ""
-                }
+                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
             }), 200
 
+        # 4. IF MATCH FOUND: Pull ONLY Message_Likes columns
         selected = random.choice(valid_candidates)
 
         return jsonify({
@@ -353,16 +342,17 @@ def get_message_liker():
                 "telegram_id": str(selected.get("Liker_id", "")),
                 "name": str(selected.get("Liker_username", "Anonymous")),
                 "age": str(selected.get("Liker_age", "")),
-                "bio": "",  # Message_Likes tab does not have bios
+                "bio": "", # Message_Likes tab does not have bios
                 "photo_url": str(selected.get("Liker_Photo", "")),
-                "message": str(selected.get("Liker_Message", "No message attached.")),
+                "message": str(selected.get("Liker_Message", "")),
                 "location": str(selected.get("Liker_location", "")),
-                "phone": clean_phone(selected.get("liker_phone", selected.get("Liker_phone", "")))
+                "phone": str(selected.get("liker_phone", selected.get("Liker_phone", "")))
             }
         }), 200
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+            
         
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
