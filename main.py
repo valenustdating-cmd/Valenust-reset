@@ -301,51 +301,47 @@ def get_message_liker():
     try:
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
+        
+        # Explicitly read the tab name from your new JSON request
+        target_tab = str(data.get("tab_name", "Direct_Messages")).strip()
 
-        # 1. Stop processing if SendPulse passes an unparsed placeholder variable during testing
+        # 1. Stop unparsed test strings instantly
         if not telegram_id or "{" in telegram_id or "}" in telegram_id:
             return jsonify({
                 "status": "empty", 
-                "message": "No match found",
-                "candidate": {
-                    "name": "",
-                    "message": "",
-                    "photo_url": "",
-                    "location": "",
-                    "age": "",
-                    "phone": ""
-                }
+                "message": "Test mode: Variables blanked",
+                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
             }), 200
 
-        # 2. Query ONLY the Direct_Messages sheet tab
-        all_records = get_cached_records("Direct_Messages")
+        # 2. Fetch records using the explicitly passed tab name
+        all_records = get_cached_records(target_tab)
 
         valid_candidates = []
         for p in all_records:
+            # ==========================================
+            # ISOLATION LOCK: The Ultimate Leakage Fix
+            # If the row does not contain the exact column "Messaged_id", 
+            # it means get_cached_records pulled the wrong tab (like Likes).
+            # We instantly ignore it.
+            # ==========================================
+            if "Messaged_id" not in p:
+                continue 
+
             clean_record = {str(k).strip(): v for k, v in p.items()}
-            
-            # Reads ONLY Messaged_id (Column B)
             messaged_id = str(clean_record.get("Messaged_id", "")).strip()
             
             if messaged_id == telegram_id:
                 valid_candidates.append(clean_record)
 
-        # 3. NO MATCH FOUND: Hard stop with clean blank fields
+        # 3. IF NO MATCH IN DIRECT MESSAGES: Send blank values to clear SendPulse cache
         if not valid_candidates:
             return jsonify({
                 "status": "empty",
                 "message": "No direct messages found",
-                "candidate": {
-                    "name": "",
-                    "message": "",
-                    "photo_url": "",
-                    "location": "",
-                    "age": "",
-                    "phone": ""
-                }
+                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
             }), 200
 
-        # 4. MATCH FOUND: Strict mapping from Direct_Messages ONLY
+        # 4. IF MATCH FOUND: Pull strictly from Direct_Messages headers
         selected = random.choice(valid_candidates)
 
         return jsonify({
@@ -353,8 +349,8 @@ def get_message_liker():
             "candidate": {
                 "telegram_id": str(selected.get("Messenger_id", "")),
                 "name": str(selected.get("Messenger_username", "Anonymous")),
-                "age": str(selected.get("Messenger_age", "")),
-                "bio": "", # Direct messages do not have bios
+                "age": "", # Forced blank to clear old Likes cache
+                "bio": "", # Forced blank to clear old Likes cache
                 "photo_url": str(selected.get("Messenger_photo", "")),
                 "message": str(selected.get("Messenger_message", "")),
                 "location": str(selected.get("Messenger_location", "")),
@@ -364,7 +360,6 @@ def get_message_liker():
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-                
         
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
