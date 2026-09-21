@@ -296,63 +296,60 @@ def get_liker():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/get_message_liker", methods=["POST"])
-def get_message_liker():
+@app.route("/get_messages", methods=["POST"])
+def get_messages():
     try:
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
-        
-        # Explicitly read the tab name from your new JSON request
-        target_tab = str(data.get("tab_name", "Direct_Messages")).strip()
 
-        # 1. Stop unparsed test strings instantly
+        # 1. Stop empty IDs or unparsed SendPulse test strings immediately
         if not telegram_id or "{" in telegram_id or "}" in telegram_id:
             return jsonify({
-                "status": "empty", 
-                "message": "Test mode: Variables blanked",
-                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
+                "status": "empty",
+                "message": "Invalid or missing Telegram ID",
+                "candidate": {
+                    "name": "", "message": "", "photo_url": "", 
+                    "location": "", "age": "", "phone": ""
+                }
             }), 200
 
-        # 2. Fetch records using the explicitly passed tab name
-        all_records = get_cached_records(target_tab)
+        # 2. Standalone fetch directly from the Direct_Messages tab
+        gc = get_gspread_client()
+        sheet = gc.open("Valenust Users").worksheet("Direct_Messages")
+        records = sheet.get_all_records()
 
-        valid_candidates = []
-        for p in all_records:
-            # ==========================================
-            # ISOLATION LOCK: The Ultimate Leakage Fix
-            # If the row does not contain the exact column "Messaged_id", 
-            # it means get_cached_records pulled the wrong tab (like Likes).
-            # We instantly ignore it.
-            # ==========================================
-            if "Messaged_id" not in p:
-                continue 
+        # 3. Filter strictly by Messaged_id (Column B)
+        matches = []
+        for row in records:
+            clean_row = {str(k).strip(): v for k, v in row.items()}
+            if str(clean_row.get("Messaged_id", "")).strip() == telegram_id:
+                matches.append(clean_row)
 
-            clean_record = {str(k).strip(): v for k, v in p.items()}
-            messaged_id = str(clean_record.get("Messaged_id", "")).strip()
-            
-            if messaged_id == telegram_id:
-                valid_candidates.append(clean_record)
-
-        # 3. IF NO MATCH IN DIRECT MESSAGES: Send blank values to clear SendPulse cache
-        if not valid_candidates:
+        # 4. If no messages exist for this user ID, return empty state
+        if not matches:
             return jsonify({
                 "status": "empty",
                 "message": "No direct messages found",
-                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
+                "candidate": {
+                    "name": "", "message": "", "photo_url": "", 
+                    "location": "", "age": "", "phone": ""
+                }
             }), 200
 
-        # 4. IF MATCH FOUND: Pull strictly from Direct_Messages headers
-        selected = random.choice(valid_candidates)
+        # 5. Select a message at random and process fields
+        selected = random.choice(matches)
+        
+        raw_name = str(selected.get("Messenger_username", "")).strip()
+        display_name = raw_name if raw_name else "Someone"
 
         return jsonify({
             "status": "success",
             "candidate": {
                 "telegram_id": str(selected.get("Messenger_id", "")),
-                "name": str(selected.get("Messenger_username", "Anonymous")),
-                "age": "", # Forced blank to clear old Likes cache
-                "bio": "", # Forced blank to clear old Likes cache
-                "photo_url": str(selected.get("Messenger_photo", "")),
+                "name": display_name,
+                "age": str(selected.get("Messenger_age", "")),
                 "message": str(selected.get("Messenger_message", "")),
+                "photo_url": str(selected.get("Messenger_photo", "")),
                 "location": str(selected.get("Messenger_location", "")),
                 "phone": clean_phone(selected.get("Messenger_phone", ""))
             }
@@ -360,6 +357,6 @@ def get_message_liker():
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-        
+                    
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
