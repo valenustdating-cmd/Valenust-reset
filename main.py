@@ -302,50 +302,63 @@ def get_message_liker():
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
 
-        # 1. Stop processing if SendPulse passes an unparsed placeholder variable
+        # 1. Stop processing if SendPulse passes an unparsed placeholder variable during testing
         if not telegram_id or "{" in telegram_id or "}" in telegram_id:
             return jsonify({
                 "status": "empty", 
                 "message": "No match found",
-                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
+                "candidate": {
+                    "name": "",
+                    "message": "",
+                    "photo_url": "",
+                    "location": "",
+                    "age": "",
+                    "phone": ""
+                }
             }), 200
 
-        # 2. Query ONLY the Message_Likes tab via your existing cache/helper
-        all_records = get_cached_records("Message_Likes")
+        # 2. Query ONLY the Direct_Messages sheet tab
+        all_records = get_cached_records("Direct_Messages")
 
         valid_candidates = []
         for p in all_records:
             clean_record = {str(k).strip(): v for k, v in p.items()}
             
-            # Read Column B (Liked_candidate)
-            liked_cand = str(clean_record.get("Liked_candidate", clean_record.get("Liked_Messenger_id", ""))).strip()
+            # Reads ONLY Messaged_id (Column B)
+            messaged_id = str(clean_record.get("Messaged_id", "")).strip()
             
-            # Strict match against recipient ID
-            if liked_cand == telegram_id:
+            if messaged_id == telegram_id:
                 valid_candidates.append(clean_record)
 
-        # 3. IF NO MATCH: STOP HERE. Return empty immediately.
+        # 3. NO MATCH FOUND: Hard stop with clean blank fields
         if not valid_candidates:
             return jsonify({
                 "status": "empty",
-                "message": "No quick messages found",
-                "candidate": {"name": "", "message": "", "photo_url": "", "location": "", "age": "", "phone": ""}
+                "message": "No direct messages found",
+                "candidate": {
+                    "name": "",
+                    "message": "",
+                    "photo_url": "",
+                    "location": "",
+                    "age": "",
+                    "phone": ""
+                }
             }), 200
 
-        # 4. IF MATCH FOUND: Pull strictly from Message_Likes columns
+        # 4. MATCH FOUND: Strict mapping from Direct_Messages ONLY
         selected = random.choice(valid_candidates)
 
         return jsonify({
             "status": "success",
             "candidate": {
-                "telegram_id": str(selected.get("Liker_id", "")),
-                "name": str(selected.get("Liker_username", "Anonymous")),
-                "age": str(selected.get("Liker_age", "")),
-                "bio": "", # Message_Likes does not have bios
-                "photo_url": str(selected.get("Liker_Photo", "")),
-                "message": str(selected.get("Liker_Message", "")),
-                "location": str(selected.get("Liker_location", "")),
-                "phone": str(selected.get("liker_phone", selected.get("Liker_phone", "")))
+                "telegram_id": str(selected.get("Messenger_id", "")),
+                "name": str(selected.get("Messenger_username", "Anonymous")),
+                "age": str(selected.get("Messenger_age", "")),
+                "bio": "", # Direct messages do not have bios
+                "photo_url": str(selected.get("Messenger_photo", "")),
+                "message": str(selected.get("Messenger_message", "")),
+                "location": str(selected.get("Messenger_location", "")),
+                "phone": clean_phone(selected.get("Messenger_phone", ""))
             }
         }), 200
 
