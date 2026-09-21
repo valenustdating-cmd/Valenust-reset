@@ -302,7 +302,7 @@ def get_messages():
         data = request.get_json(silent=True) or {}
         telegram_id = str(data.get("telegram_id", "")).strip()
 
-        # Reject invalid/empty IDs immediately
+        # Reject invalid, empty, or unparsed SendPulse variable strings
         if not telegram_id or "{" in telegram_id or "}" in telegram_id:
             return jsonify({
                 "status": "empty",
@@ -313,13 +313,12 @@ def get_messages():
                 }
             }), 200
 
-        # Open Direct_Messages tab directly
+        # Read directly from Direct_Messages tab
         gc = get_gspread_client()
         sheet = gc.open("Valenust Users").worksheet("Direct_Messages")
-        
-        # Get raw rows (Matrix of lists: [row1, row2, row3...])
         all_rows = sheet.get_all_values()
 
+        # Check if sheet only has header or is completely empty
         if len(all_rows) <= 1:
             return jsonify({
                 "status": "empty",
@@ -330,19 +329,39 @@ def get_messages():
                 }
             }), 200
 
-        # Filter strictly by Column B (Messaged_id)
-        # Column A = Index 0 (Messenger_id)
-        # Column B = Index 1 (Messaged_id)
-        # Column C = Index 2 (Messenger_username)
-        # Column D = Index 3 (Messenger_age)
-        # Column E = Index 4 (Messenger_location)
-        # Column F = Index 5 (Messenger_message)
-        # Column G = Index 6 (Messenger_photo)
-        # Column H = Index 7 (Messenger_phone)
-        
+        # Normalize Row 1 headers to lowercase for dynamic mapping
+        headers = [str(h).strip().lower() for h in all_rows[0]]
+
+        def get_field(row, header_names):
+            """Finds cell content by matching sheet column headers dynamically."""
+            if isinstance(header_names, str):
+                header_names = [header_names]
+            for name in header_names:
+                name_clean = name.lower().strip()
+                if name_clean in headers:
+                    idx = headers.index(name_clean)
+                    if idx < len(row):
+                        val = str(row[idx]).strip()
+                        if val:
+                            return val
+            return ""
+
+        if "messaged_id" not in headers:
+            return jsonify({
+                "status": "empty",
+                "message": "Messaged_id column missing",
+                "candidate": {
+                    "name": "", "message": "", "photo_url": "", 
+                    "location": "", "age": "", "phone": ""
+                }
+            }), 200
+
+        messaged_col_idx = headers.index("messaged_id")
+
+        # Strict match against Messaged_id column only
         matches = []
-        for row in all_rows[1:]: # Skip header row
-            if len(row) > 1 and str(row[1]).strip() == telegram_id:
+        for row in all_rows[1:]:
+            if len(row) > messaged_col_idx and str(row[messaged_col_idx]).strip() == telegram_id:
                 matches.append(row)
 
         if not matches:
@@ -355,35 +374,33 @@ def get_messages():
                 }
             }), 200
 
-        # Pick a random matching message row
+        # Pick a random match from the retrieved messages
         selected = random.choice(matches)
 
-        # Safely extract by column index
-        messenger_id = selected[0] if len(selected) > 0 else ""
-        raw_name     = selected[2] if len(selected) > 2 else ""
-        age          = selected[3] if len(selected) > 3 else ""
-        location     = selected[4] if len(selected) > 4 else ""
-        msg_text     = selected[5] if len(selected) > 5 else ""
-        photo_url    = selected[6] if len(selected) > 6 else ""
-        phone        = selected[7] if len(selected) > 7 else ""
-
-        display_name = str(raw_name).strip() if str(raw_name).strip() else "Someone"
+        messenger_id = get_field(selected, ["messenger_id"])
+        raw_name     = get_field(selected, ["messenger_name", "messenger_username"])
+        age          = get_field(selected, ["messenger_age"])
+        location     = get_field(selected, ["messenger_location"])
+        msg_text     = get_field(selected, ["messenger_message"])
+        photo_url    = get_field(selected, ["messenger_photo", "photo_url"])
+        phone        = get_field(selected, ["messenger_phone", "phone"])
 
         return jsonify({
             "status": "success",
             "candidate": {
-                "telegram_id": str(messenger_id).strip(),
-                "name": display_name,
-                "age": str(age).strip(),
-                "message": str(msg_text).strip(),
-                "photo_url": str(photo_url).strip(),
-                "location": str(location).strip(),
+                "telegram_id": messenger_id,
+                "name": raw_name if raw_name else "Someone",
+                "age": age,
+                "message": msg_text,
+                "photo_url": photo_url,
+                "location": location,
                 "phone": clean_phone(phone)
             }
         }), 200
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+            
         
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
